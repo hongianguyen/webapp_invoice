@@ -1,127 +1,39 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Drive Camera Upload</title>
-    <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; flex-direction: column; align-items: center; background: #f0f2f5; padding: 20px; color: #333; }
-        .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); width: 100%; max-width: 400px; text-align: center; }
-        video { width: 100%; border-radius: 8px; background: #000; margin-bottom: 10px; }
-        button { background: #1a73e8; color: white; border: none; padding: 12px 24px; border-radius: 6px; cursor: pointer; font-weight: bold; width: 100%; margin: 5px 0; }
-        button:disabled { background: #ccc; }
-        .hidden { display: none; }
-        #status { margin-top: 15px; font-size: 0.9em; color: #666; }
-    </style>
-</head>
-<body>
+<script>
+    // 1. DEFINE YOUR VARIABLES AND FUNCTIONS FIRST
+    const CLIENT_ID = '725359001871-8p81bekdai3rdpn5igsr291d4p6hn0jt.apps.googleusercontent.com';
+    const FOLDER_ID = '1IJ4wTZMfNn9MleyDudu13B2OjE9HvKcC';
+    const SCOPES = 'https://www.googleapis.com/auth/drive.file';
 
-    <div class="card">
-        <h2>Google Drive Uploader</h2>
-        
-        <button id="auth_btn">1. Sign in to Google</button>
-        
-        <div id="camera_section" class="hidden">
-            <video id="video" autoplay playsinline></video>
-            <button id="snap_btn">2. SNAP PHOTO</button>
-        </div>
+    let tokenClient;
+    let accessToken = null;
 
-        <div id="upload_section" class="hidden">
-            <p style="color: green;">✓ Photo Captured</p>
-            <button id="upload_btn">3. UPLOAD TO FOLDER</button>
-        </div>
+    // This function MUST be defined before the Google script loads
+    function gisLoaded() {
+        console.log("Library loaded successfully!");
+        tokenClient = google.accounts.oauth2.initTokenClient({
+            client_id: CLIENT_ID,
+            scope: SCOPES,
+            callback: (tokenResponse) => {
+                accessToken = tokenResponse.access_token;
+                document.getElementById('auth_btn').classList.add('hidden');
+                document.getElementById('camera_section').classList.remove('hidden');
+                startCamera();
+            },
+        });
+    }
 
-        <canvas id="canvas" class="hidden"></canvas>
-        <div id="status">Please sign in to begin...</div>
-    </div>
-
-    <script src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
-    <script>
-        const CLIENT_ID = '725359001871-8p81bekdai3rdpn5igsr291d4p6hn0jt.apps.googleusercontent.com';
-        const FOLDER_ID = '1IJ4wTZMfNn9MleyDudu13B2OjE9HvKcC';
-        const SCOPES = 'https://www.googleapis.com/auth/drive.file';
-
-        let tokenClient;
-        let accessToken = null;
-        const video = document.getElementById('video');
-        const canvas = document.getElementById('canvas');
-        const status = document.getElementById('status');
-
-        function gisLoaded() {
-            tokenClient = google.accounts.oauth2.initTokenClient({
-                client_id: CLIENT_ID,
-                scope: SCOPES,
-                callback: (tokenResponse) => {
-                    if (tokenResponse.error) {
-                        status.innerText = "Error: " + tokenResponse.error;
-                        return;
-                    }
-                    accessToken = tokenResponse.access_token;
-                    status.innerText = "Authenticated! Opening camera...";
-                    document.getElementById('auth_btn').classList.add('hidden');
-                    document.getElementById('camera_section').classList.remove('hidden');
-                    startCamera();
-                },
-            });
+    document.getElementById('auth_btn').onclick = () => {
+        if (tokenClient) {
+            tokenClient.requestAccessToken();
+        } else {
+            alert("Google library not loaded yet. Please wait a moment.");
         }
+    };
 
-        document.getElementById('auth_btn').onclick = () => tokenClient.requestAccessToken();
+    // ... (Keep your startCamera, SNAP, and UPLOAD logic here) ...
+</script>
 
-        async function startCamera() {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: "environment" } 
-                });
-                video.srcObject = stream;
-            } catch (err) {
-                status.innerText = "Camera error: " + err.message;
-            }
-        }
+<script src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
 
-        document.getElementById('snap_btn').onclick = () => {
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            canvas.getContext('2d').drawImage(video, 0, 0);
-            document.getElementById('upload_section').classList.remove('hidden');
-            status.innerText = "Ready to upload.";
-        };
-
-        document.getElementById('upload_btn').onclick = async () => {
-            status.innerText = "Uploading... please wait.";
-            document.getElementById('upload_btn').disabled = true;
-
-            canvas.toBlob(async (blob) => {
-                const metadata = {
-                    name: `MobileSnap_${new Date().toISOString()}.jpg`,
-                    mimeType: 'image/jpeg',
-                    parents: [FOLDER_ID] // This puts it in your specific folder
-                };
-
-                const form = new FormData();
-                form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-                form.append('file', blob);
-
-                try {
-                    const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-                        method: 'POST',
-                        headers: new Headers({ 'Authorization': 'Bearer ' + accessToken }),
-                        body: form
-                    });
-
-                    const result = await response.json();
-                    if (response.ok) {
-                        status.innerText = "✅ Success! File ID: " + result.id;
-                        document.getElementById('upload_section').classList.add('hidden');
-                    } else {
-                        throw new Error(result.error.message);
-                    }
-                } catch (err) {
-                    status.innerText = "Upload failed: " + err.message;
-                } finally {
-                    document.getElementById('upload_btn').disabled = false;
-                }
-            }, 'image/jpeg', 0.8);
-        };
-    </script>
 </body>
 </html>
