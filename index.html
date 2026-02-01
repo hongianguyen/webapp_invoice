@@ -21,7 +21,7 @@
 <div class="container">
     <h2>Drive Camera App</h2>
     <button id="auth_btn">1. Sign in to Google</button>
-    <input id="vision_key" type="password" placeholder="Vision API Key (not saved)">
+    <input id="vision_key" type="password" placeholder="Gemini API Key (not saved)">
     
     <div id="camera_section" class="hidden">
         <video id="video" autoplay playsinline></video>
@@ -53,16 +53,17 @@
     const FOLDER_ID = '1IJ4wTZMfNn9MleyDudu13B2OjE9HvKcC';
     const SHEET_ID = '1Vr5478x2sF-tIR9ra319eXRVtanWIyhBoPLEowg1fHQ';
     const SHEET_RANGE = 'Sheet1!A:F';
-    const VISION_API_KEY = '';
+    const GEMINI_API_KEY = '';
 
     let tokenClient;
     let accessToken = null;
     let lastUploadFileId = null;
-    let visionApiKey = "";
+    let lastCapturedBlob = null;
+    let geminiApiKey = "";
     const visionKeyInput = document.getElementById('vision_key');
-    const savedVisionKey = localStorage.getItem('vision_api_key') || "";
+    const savedVisionKey = localStorage.getItem('gemini_api_key') || "";
     if (savedVisionKey) {
-        visionApiKey = savedVisionKey;
+        geminiApiKey = savedVisionKey;
         visionKeyInput.value = savedVisionKey;
     }
 
@@ -120,6 +121,7 @@
     document.getElementById('upload_btn').onclick = async () => {
         document.getElementById('status').innerText = "Uploading...";
         document.getElementById('canvas').toBlob(async (blob) => {
+            lastCapturedBlob = blob;
             const metadata = { name: `Snap_${Date.now()}.jpg`, parents: [FOLDER_ID] };
             const form = new FormData();
             form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
@@ -134,14 +136,14 @@
                 const data = await res.json();
                 lastUploadFileId = data.id || null;
                 document.getElementById('status').innerText = "Photo uploaded. Running OCR...";
-                await runOcrFromCanvas();
+                await runOcrFromCapture();
             } else {
                 document.getElementById('status').innerText = "Upload failed.";
             }
         }, 'image/jpeg');
     };
 
-    async function runOcrFromCanvas() {
+    async function runOcrFromCapture() {
         const c = document.getElementById('canvas');
         const ocrText = document.getElementById('ocr_text');
         const status = document.getElementById('status');
@@ -149,32 +151,44 @@
         document.getElementById('ocr_section').classList.remove('hidden');
         status.innerText = "OCR in progress...";
         try {
-            const activeKey = visionApiKey || VISION_API_KEY;
+            const activeKey = geminiApiKey || GEMINI_API_KEY;
             if (!activeKey) {
-                status.innerText = "Enter Vision API Key before running OCR.";
+                status.innerText = "Enter Gemini API Key before running OCR.";
                 return;
             }
-            const prepared = prepareCanvasForVision(c);
-            const text = await runVisionOcr(prepared, activeKey);
+            if (!lastCapturedBlob) {
+                status.innerText = "No image captured for OCR.";
+                return;
+            }
+            const base64 = await blobToBase64(lastCapturedBlob);
+            let text = await runGeminiOcrBase64(base64, activeKey);
+            if (!text.trim()) {
+                const prepared = prepareCanvasForGemini(c);
+                const fallbackBase64 = canvasToBase64(prepared);
+                text = await runGeminiOcrBase64(fallbackBase64, activeKey);
+            }
             ocrText.value = text.trim();
             const parsed = parseReceipt(text);
             fillForm(parsed);
-            status.innerText = "Review the extracted data and confirm.";
+            status.innerText = text.trim()
+                ? "Review the extracted data and confirm."
+                : "No text detected. Try better lighting or closer focus.";
         } catch (e) {
             status.innerText = "OCR failed: " + e.message;
         }
     }
 
-    async function runVisionOcr(canvas, apiKey) {
-        const base64 = canvasToBase64(canvas);
-        const res = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`, {
+    async function runGeminiOcrBase64(base64, apiKey) {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                requests: [{
-                    image: { content: base64 },
-                    features: [{ type: 'DOCUMENT_TEXT_DETECTION' }],
-                    imageContext: { languageHints: ['vi'] }
+                contents: [{
+                    role: 'user',
+                    parts: [
+                        { text: 'Extract all text from this receipt/invoice image. Return only the text as plain lines, no extra commentary.' },
+                        { inline_data: { mime_type: 'image/jpeg', data: base64 } }
+                    ]
                 }]
             })
         });
@@ -187,16 +201,13 @@
             } catch (_) {
                 // ignore JSON parse errors
             }
-            throw new Error("Vision API request failed." + detail);
+            throw new Error("Gemini API request failed." + detail);
         }
         const data = await res.json();
-        if (data?.responses?.[0]?.error?.message) {
-            throw new Error(`Vision API error: ${data.responses[0].error.message}`);
-        }
-        const annotation = data.responses?.[0]?.fullTextAnnotation?.text
-            || data.responses?.[0]?.textAnnotations?.[0]?.description
-            || "";
-        return annotation;
+        const text = data?.candidates?.[0]?.content?.parts
+            ?.map(part => part.text || "")
+            .join("\n") || "";
+        return text;
     }
 
     function canvasToBase64(canvas) {
@@ -204,7 +215,20 @@
         return dataUrl.split(',')[1] || "";
     }
 
-    function prepareCanvasForVision(sourceCanvas) {
+    function blobToBase64(blob) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+                const result = reader.result || "";
+                const parts = String(result).split(',');
+                resolve(parts[1] || "");
+            };
+            reader.onerror = () => reject(new Error("Failed to read image data."));
+            reader.readAsDataURL(blob);
+        });
+    }
+
+    function prepareCanvasForGemini(sourceCanvas) {
         let working = sourceCanvas;
         // Auto-rotate if landscape (most receipts are portrait)
         if (working.width > working.height) {
@@ -395,8 +419,8 @@
     };
 
     visionKeyInput.addEventListener('input', (e) => {
-        visionApiKey = e.target.value.trim();
-        localStorage.setItem('vision_api_key', visionApiKey);
+        geminiApiKey = e.target.value.trim();
+        localStorage.setItem('gemini_api_key', geminiApiKey);
     });
 
     // --- 3. THE SCRIPT INJECTION ---
