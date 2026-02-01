@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Snap & Save</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+<style>
+  /* ─── Reset & Variables ─── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0a0a0f;
+    --surface:   #141419;
+    --surface2:  #1e1e26;
+    --border:    #2a2a35;
+    --accent:    #e8c94a;
+    --accent-dim:#c4a83a;
+    --text:      #f0eee8;
+    --text-dim:  #7a7a85;
+    --red:       #e05555;
+    --green:     #4ecdc4;
+    --radius:    14px;
+    --glow:      0 0 40px rgba(232,201,74,.18);
+  }
+
+  html { height: 100%; }
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    overflow-x: hidden;
+  }
+
+  /* ─── Ambient Background ─── */
+  .ambient {
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background:
+      radial-gradient(ellipse 60% 40% at 20% 30%, rgba(232,201,74,.07) 0%, transparent 70%),
+      radial-gradient(ellipse 50% 50% at 80% 70%, rgba(78,205,196,.05) 0%, transparent 70%);
+  }
+
+  /* ─── Layout ─── */
+  .container {
+    position: relative; z-index: 1;
+    width: 100%; max-width: 520px;
+    min-height: 100vh;
+    display: flex; flex-direction: column; align-items: center;
+    padding: 48px 24px 40px;
+  }
+
+  /* ─── Header ─── */
+  .header { text-align: center; margin-bottom: 40px; }
+  .header h1 {
+    font-family: 'Playfair Display', serif;
+    font-size: 2.6rem; font-weight: 700;
+    letter-spacing: -0.02em;
+    background: linear-gradient(135deg, var(--accent), #f0d86a, var(--accent));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .header p { color: var(--text-dim); font-size: .88rem; margin-top: 6px; font-weight: 300; letter-spacing: .02em; }
+
+  /* ─── Card ─── */
+  .card {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 32px 28px;
+    margin-bottom: 20px;
+    transition: border-color .3s;
+  }
+  .card:hover { border-color: rgba(232,201,74,.25); }
+  .card-title {
+    font-size: .72rem; text-transform: uppercase; letter-spacing: .15em;
+    color: var(--text-dim); margin-bottom: 18px; font-weight: 500;
+  }
+
+  /* ─── Buttons ─── */
+  .btn {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    width: 100%; padding: 14px 20px;
+    border: none; border-radius: 10px;
+    font-family: inherit; font-size: .9rem; font-weight: 500;
+    cursor: pointer; transition: all .25s;
+    position: relative; overflow: hidden;
+  }
+  .btn::after {
+    content: ''; position: absolute; inset: 0;
+    background: linear-gradient(135deg, rgba(255,255,255,.06), transparent);
+    pointer-events: none;
+  }
+
+  /* Google sign-in */
+  .btn-google {
+    background: var(--surface2); color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-google:hover { border-color: var(--accent-dim); background: #26262f; }
+  .btn-google svg { width: 20px; height: 20px; flex-shrink: 0; }
+
+  /* Sign out */
+  .btn-signout {
+    background: transparent; color: var(--text-dim);
+    border: 1px solid var(--border); font-size: .78rem; padding: 8px 14px;
+    width: auto; border-radius: 8px;
+  }
+  .btn-signout:hover { color: var(--red); border-color: var(--red); }
+
+  /* Camera button */
+  .btn-camera {
+    background: linear-gradient(135deg, var(--accent), var(--accent-dim));
+    color: #0a0a0f; font-weight: 600; font-size: .95rem;
+    box-shadow: var(--glow);
+    padding: 16px;
+  }
+  .btn-camera:hover { box-shadow: 0 0 60px rgba(232,201,74,.3); transform: translateY(-1px); }
+  .btn-camera:active { transform: translateY(0); }
+  .btn-camera svg { width: 22px; height: 22px; }
+
+  /* ─── User Badge ─── */
+  .user-badge {
+    display: flex; align-items: center; gap: 12px;
+    background: var(--surface2); border-radius: 10px;
+    padding: 10px 14px; margin-bottom: 10px;
+  }
+  .user-badge img { width: 36px; height: 36px; border-radius: 50%; border: 2px solid var(--border); }
+  .user-badge .info { flex: 1; }
+  .user-badge .info .name { font-size: .88rem; font-weight: 500; }
+  .user-badge .info .email { font-size: .74rem; color: var(--text-dim); }
+
+  /* ─── Preview Area ─── */
+  .preview-wrap {
+    width: 100%; border-radius: 10px; overflow: hidden;
+    border: 1px solid var(--border); margin-top: 16px;
+    background: var(--surface2);
+    aspect-ratio: 4/3;
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+  }
+  .preview-wrap video, .preview-wrap img.preview-img {
+    width: 100%; height: 100%; object-fit: cover;
+  }
+  .preview-placeholder {
+    color: var(--text-dim); font-size: .82rem; text-align: center; padding: 20px;
+    line-height: 1.5;
+  }
+  .preview-placeholder svg { width: 40px; height: 40px; opacity: .3; margin-bottom: 10px; display: block; margin-left: auto; margin-right: auto; }
+
+  /* Snap btn overlay */
+  .snap-overlay {
+    position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+    display: none;
+  }
+  .snap-overlay.show { display: flex; }
+  .btn-snap {
+    width: 64px; height: 64px; border-radius: 50%;
+    background: #fff; border: 4px solid rgba(255,255,255,.3);
+    box-shadow: 0 4px 24px rgba(0,0,0,.4);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: transform .15s, box-shadow .15s;
+  }
+  .btn-snap:hover { transform: scale(1.08); box-shadow: 0 6px 30px rgba(0,0,0,.5); }
+  .btn-snap:active { transform: scale(.94); }
+  .btn-snap-inner {
+    width: 46px; height: 46px; border-radius: 50%;
+    background: var(--accent);
+  }
+
+  /* Action row */
+  .action-row {
+    display: flex; gap: 10px; margin-top: 14px;
+  }
+  .action-row .btn { flex: 1; font-size: .82rem; padding: 11px; }
+  .btn-retake { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+  .btn-retake:hover { border-color: var(--text-dim); }
+  .btn-upload {
+    background: var(--green); color: #0a0a0f; font-weight: 600;
+    box-shadow: 0 0 30px rgba(78,205,196,.2);
+  }
+  .btn-upload:hover { box-shadow: 0 0 40px rgba(78,205,196,.3); }
+
+  /* ─── Status Toast ─── */
+  .toast {
+    position: fixed; bottom: 32px; left: 50%; transform: translateX(-50%) translateY(120px);
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--text); padding: 12px 22px; border-radius: 10px;
+    font-size: .82rem; white-space: nowrap;
+    transition: transform .35s cubic-bezier(.34,1.56,.64,1), border-color .3s;
+    z-index: 100; display: flex; align-items: center; gap: 8px;
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+  .toast.success { border-color: var(--green); }
+  .toast.error   { border-color: var(--red); }
+  .toast .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-dim); }
+  .toast.success .dot { background: var(--green); }
+  .toast.error   .dot { background: var(--red); }
+
+  /* ─── Hidden ─── */
+  .hidden { display: none !important; }
+
+  /* ─── Setup Instructions ─── */
+  .instructions {
+    margin-top: auto; padding-top: 32px; width: 100%;
+    border-top: 1px solid var(--border);
+  }
+  .instructions details {
+    font-size: .76rem; color: var(--text-dim);
+  }
+  .instructions summary {
+    cursor: pointer; color: var(--text-dim); font-weight: 500;
+    letter-spacing: .04em; user-select: none;
+  }
+  .instructions summary:hover { color: var(--accent); }
+  .instructions p, .instructions li { margin-top: 8px; line-height: 1.6; }
+  .instructions code {
+    background: var(--surface2); padding: 2px 6px; border-radius: 4px;
+    font-size: .73rem; color: var(--accent);
+  }
+  .instructions ol { padding-left: 18px; }
+  .instructions li { margin-top: 6px; }
+
+  /* ─── Spinner ─── */
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spinner { width: 18px; height: 18px; border: 2px solid rgba(10,10,15,.3); border-top-color: #0a0a0f; border-radius: 50%; animation: spin .5s linear infinite; }
+
+  /* ─── Flash ─── */
+  @keyframes flash { 0%{opacity:1} 100%{opacity:0} }
+  .flash { position:fixed; inset:0; background:#fff; pointer-events:none; z-index:99; animation: flash .35s ease-out forwards; }
+</style>
+</head>
+<body>
+<div class="ambient"></div>
+
+<div class="container">
+  <!-- Header -->
+  <div class="header">
+    <h1>Snap &amp; Save</h1>
+    <p>Take a photo and upload it instantly to Google Drive</p>
+  </div>
+
+  <!-- ═══ LOGIN STATE ═══ -->
+  <div id="loginScreen">
+    <div class="card">
+      <div class="card-title">Sign In</div>
+      <p style="color:var(--text-dim);font-size:.82rem;margin-bottom:18px;line-height:1.6;">
+        Connect your Google account to enable uploading photos directly to your Drive.
+      </p>
+      <button class="btn btn-google" id="signInBtn">
+        <!-- Google SVG Icon -->
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+          <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+          <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+          <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+        </svg>
+        Sign in with Google
+      </button>
+    </div>
+  </div>
+
+  <!-- ═══ CAMERA STATE ═══ -->
+  <div id="cameraScreen" class="hidden">
+    <!-- User badge -->
+    <div class="user-badge" style="width:100%;margin-bottom:20px;">
+      <img id="userAvatar" src="" alt="avatar"/>
+      <div class="info">
+        <div class="name" id="userName"></div>
+        <div class="email" id="userEmail"></div>
+      </div>
+      <button class="btn btn-signout" id="signOutBtn">Sign out</button>
+    </div>
+
+    <!-- Target folder info -->
+    <div class="card">
+      <div class="card-title">Upload Destination</div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+        </svg>
+        <span style="font-size:.84rem;color:var(--text);" id="folderName">Photos Upload</span>
+      </div>
+      <p style="font-size:.73rem;color:var(--text-dim);margin-top:8px;">
+        Photos will be saved here on Google Drive.
+        <br/><span style="color:var(--accent-dim);">Configure the folder ID in the JS config below.</span>
+      </p>
+    </div>
+
+    <!-- Camera / Preview Card -->
+    <div class="card">
+      <div class="card-title" id="previewLabel">Camera</div>
+
+      <!-- Live camera view -->
+      <div id="liveView">
+        <div class="preview-wrap">
+          <video id="videoEl" autoplay playsinline muted style="display:none;"></video>
+          <div class="preview-placeholder" id="cameraPlaceholder">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/></svg>
+            Tap the button below to open your camera
+          </div>
+        </div>
+        <!-- Snap overlay (shown when camera is live) -->
+        <div class="snap-overlay" id="snapOverlay">
+          <div class="btn-snap" id="snapBtn">
+            <div class="btn-snap-inner"></div>
+          </div>
+        </div>
+        <!-- Open camera btn -->
+        <button class="btn btn-camera" id="openCameraBtn" style="margin-top:16px;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+            <circle cx="12" cy="13" r="4"/>
+          </svg>
+          Open Camera
+        </button>
+      </div>
+
+      <!-- Captured photo view -->
+      <div id="capturedView" class="hidden">
+        <div class="preview-wrap">
+          <img class="preview-img" id="previewImg" src="" alt="Captured"/>
+        </div>
+        <div class="action-row">
+          <button class="btn btn-retake" id="retakeBtn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.99"/></svg>
+            Retake
+          </button>
+          <button class="btn btn-upload" id="uploadBtn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            Upload to Drive
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Instructions -->
+  <div class="instructions">
+    <details>
+      <summary>⚙️ Developer Setup Instructions</summary>
+      <ol>
+        <li>Go to <a href="https://console.cloud.google.com" target="_blank" style="color:var(--accent);">Google Cloud Console</a> and create a project.</li>
+        <li>Enable <strong>Google Drive API</strong>.</li>
+        <li>Go to <strong>APIs &amp; Services → Credentials → Create → OAuth 2.0 Client ID</strong> (Web application).</li>
+        <li>Set <strong>Authorized origins</strong> to:<br/><code>https://hongianguyen.github.io</code></li>
+        <li>Set <strong>Authorized redirect URIs</strong> to:<br/><code>https://hongianguyen.github.io/webapp_invoice/index.html</code></li>
+        <li>Copy the <strong>Client ID</strong> into the <code>CLIENT_ID</code> variable in <code>index.html</code>.</li>
+        <li>Create a folder in Google Drive. Copy its <strong>Folder ID</strong> (from the URL) into <code>DRIVE_FOLDER_ID</code>.</li>
+        <li>Upload both <code>index.html</code> and <code>oauth.html</code> to your repo root.</li>
+      </ol>
+      <p style="margin-top:12px;color:var(--red);font-size:.72rem;">
+        ⚠️ Google OAuth requires the page to be served over HTTPS from an authorized origin. <code>localhost</code> works only if added to the authorized origins list.
+      </p>
+    </details>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast">
+  <span class="dot"></span>
+  <span id="toastMsg">Message</span>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════
+//  ▶  CONFIG  — replace with your own values
+// ════════════════════════════════════════════════════
+const CLIENT_ID       = '725359001871-8p81bekdai3rdpn5igsr291d4p6hn0jt.apps.googleusercontent.com';
+const DRIVE_FOLDER_ID = '1IJ4wTZMfNn9MleyDudu13B2OjE9HvKcC';
+const FOLDER_NAME     = 'Photos Upload';                  // display name (cosmetic)
+// ════════════════════════════════════════════════════
+
+// ─── Google Identity Services (GIS) ───
+// Uses: https://accounts.google.com/gsi/web
+// Scopes needed: drive.file (create files owned by user)
+
+const SCOPES = 'https://www.googleapis.com/auth/drive.file';
+
+let accessToken = null;
+let googleUser  = null;
+let videoStream = null;
+let capturedBlob = null;
+
+// ─── DOM refs ───
+const loginScreen   = document.getElementById('loginScreen');
+const cameraScreen  = document.getElementById('cameraScreen');
+const signInBtn     = document.getElementById('signInBtn');
+const signOutBtn    = document.getElementById('signOutBtn');
+const userAvatar    = document.getElementById('userAvatar');
+const userName      = document.getElementById('userName');
+const userEmail     = document.getElementById('userEmail');
+const folderNameEl  = document.getElementById('folderName');
+
+const videoEl       = document.getElementById('videoEl');
+const cameraPlaceholder = document.getElementById('cameraPlaceholder');
+const openCameraBtn = document.getElementById('openCameraBtn');
+const snapOverlay   = document.getElementById('snapOverlay');
+const snapBtn       = document.getElementById('snapBtn');
+
+const liveView      = document.getElementById('liveView');
+const capturedView  = document.getElementById('capturedView');
+const previewImg    = document.getElementById('previewImg');
+const previewLabel  = document.getElementById('previewLabel');
+const retakeBtn     = document.getElementById('retakeBtn');
+const uploadBtn     = document.getElementById('uploadBtn');
+
+const toast         = document.getElementById('toast');
+const toastMsg      = document.getElementById('toastMsg');
+
+// ─── Toast ───
+let toastTimeout;
+function showToast(msg, type = 'info') {
+  toastMsg.textContent = msg;
+  toast.className = 'toast show ' + (type === 'success' ? 'success' : type === 'error' ? 'error' : '');
+  clearTimeout(toastTimeout);
+  toastTimeout = setTimeout(() => toast.classList.remove('show'), 3200);
+}
+
+// ─── Flash effect ───
+function flash() {
+  const el = document.createElement('div');
+  el.className = 'flash';
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 400);
+}
+
+// ═══════════════════════════════════════════
+//  GOOGLE SIGN-IN  (using fetch to Google tokenserver)
+//  We use the simple implicit-flow style via a popup.
+// ═══════════════════════════════════════════
+
+// ─── Sign-In: full-page redirect flow (no popup needed) ───
+// Google redirects back here (index.html) with the token in the URL hash.
+// We register index.html itself as the redirect_uri in Google Cloud.
+signInBtn.addEventListener('click', () => {
+  const redirectUri = 'https://hongianguyen.github.io/webapp_invoice/index.html';
+
+  const authUrl = 'https://accounts.google.com/o/oauth/v2/auth?' +
+    new URLSearchParams({
+      client_id:     CLIENT_ID,
+      redirect_uri:  redirectUri,
+      response_type: 'token',
+      scope:         SCOPES + ' openid email profile',
+      access_type:   'online',
+      prompt:        'consent'
+    }).toString();
+
+  // Full-page redirect to Google — after login Google comes back here with #access_token=...
+  window.location.href = authUrl;
+});
+
+// ─── On page load: check if Google redirected back with a token in the hash ───
+(function checkHash() {
+  const hash = window.location.hash;
+  if (hash) {
+    const params = new URLSearchParams(hash.replace('#', ''));
+    const token = params.get('access_token');
+    if (token) {
+      accessToken = token;
+      // Clean the hash out of the URL bar
+      history.replaceState(null, '', window.location.pathname);
+      fetchUserInfo();
+    }
+  }
+})();
+
+// ─── Fetch user info from Google ───
+async function fetchUserInfo() {
+  try {
+    const res = await fetch('https://people.googleapis.com/v1/people/me?personFields=names,photos,emails', {
+      headers: { 'Authorization': 'Bearer ' + accessToken }
+    });
+    const data = await res.json();
+    const name  = data.names?.[0]?.displayName || 'User';
+    const email = data.emails?.[0]?.value || '';
+    const photo = data.photos?.[0]?.url || '';
+
+    userName.textContent  = name;
+    userEmail.textContent = email;
+    userAvatar.src        = photo;
+    folderNameEl.textContent = FOLDER_NAME;
+
+    loginScreen.classList.add('hidden');
+    cameraScreen.classList.remove('hidden');
+    showToast('Welcome, ' + name + '!', 'success');
+  } catch (err) {
+    console.error(err);
+    showToast('Failed to fetch profile. Check your Client ID.', 'error');
+  }
+}
+
+// ─── Sign out ───
+signOutBtn.addEventListener('click', () => {
+  accessToken = null;
+  stopCamera();
+  loginScreen.classList.remove('hidden');
+  cameraScreen.classList.add('hidden');
+  showToast('Signed out');
+});
+
+// ═══════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════
+
+openCameraBtn.addEventListener('click', async () => {
+  try {
+    videoStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 960 } }
+    });
+    videoEl.srcObject = videoStream;
+    videoEl.style.display = 'block';
+    cameraPlaceholder.classList.add('hidden');
+    openCameraBtn.classList.add('hidden');
+    snapOverlay.classList.add('show');
+    previewLabel.textContent = 'Live Camera';
+    showToast('Camera is live');
+  } catch (err) {
+    console.error(err);
+    showToast('Could not access camera. Please allow camera permissions.', 'error');
+  }
+});
+
+// ─── Snap ───
+snapBtn.addEventListener('click', () => {
+  if (!videoStream) return;
+  flash();
+
+  const canvas = document.createElement('canvas');
+  canvas.width  = videoEl.videoWidth;
+  canvas.height = videoEl.videoHeight;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(videoEl, 0, 0);
+
+  canvas.toBlob((blob) => {
+    capturedBlob = blob;
+    previewImg.src = URL.createObjectURL(blob);
+
+    // Switch views
+    liveView.classList.add('hidden');
+    capturedView.classList.remove('hidden');
+    previewLabel.textContent = 'Preview';
+
+    stopCamera();
+    showToast('Photo captured!');
+  }, 'image/jpeg', 0.92);
+});
+
+// ─── Retake ───
+retakeBtn.addEventListener('click', () => {
+  capturedBlob = null;
+  previewImg.src = '';
+  capturedView.classList.add('hidden');
+  liveView.classList.remove('hidden');
+  previewLabel.textContent = 'Camera';
+  // Reset to placeholder
+  videoEl.style.display = 'none';
+  cameraPlaceholder.classList.remove('hidden');
+  openCameraBtn.classList.remove('hidden');
+  snapOverlay.classList.remove('show');
+});
+
+function stopCamera() {
+  if (videoStream) {
+    videoStream.getTracks().forEach(t => t.stop());
+    videoStream = null;
+  }
+  snapOverlay.classList.remove('show');
+}
+
+// ═══════════════════════════════════════════
+//  UPLOAD TO GOOGLE DRIVE
+// ═══════════════════════════════════════════
+
+uploadBtn.addEventListener('click', async () => {
+  if (!capturedBlob || !accessToken) return;
+
+  // Disable button, show spinner
+  uploadBtn.innerHTML = '<span class="spinner"></span> Uploading…';
+  uploadBtn.style.pointerEvents = 'none';
+
+  try {
+    const fileName = 'snap_' + Date.now() + '.jpg';
+
+    // ── Step 1: Upload file content (resumable upload) ──
+    const metadata = JSON.stringify({
+      name: fileName,
+      parents: [DRIVE_FOLDER_ID],
+      mimeType: 'image/jpeg'
+    });
+
+    // Use multipart upload (simpler for small files)
+    const boundary = '-------' + Date.now().toString(16);
+    const body = [
+      '--' + boundary,
+      'Content-Type: application/json; charset=UTF-8',
+      '',
+      metadata,
+      '--' + boundary,
+      'Content-Type: image/jpeg',
+      '',
+    ].join('\r\n');
+
+    // Build multipart body as ArrayBuffer
+    const encoder = new TextEncoder();
+    const headerBytes = encoder.encode(body);
+    const blobBytes   = await capturedBlob.arrayBuffer();
+    const footerBytes = encoder.encode('\r\n--' + boundary + '--\r\n');
+
+    const combined = new Uint8Array(headerBytes.byteLength + blobBytes.byteLength + footerBytes.byteLength);
+    combined.set(headerBytes, 0);
+    combined.set(new Uint8Array(blobBytes), headerBytes.byteLength);
+    combined.set(footerBytes, headerBytes.byteLength + blobBytes.byteLength);
+
+    const uploadRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + accessToken,
+        'Content-Type': 'multipart/related; boundary=' + boundary
+      },
+      body: combined
+    });
+
+    if (!uploadRes.ok) {
+      const errText = await uploadRes.text();
+      throw new Error('Drive API error: ' + uploadRes.status + ' ' + errText);
+    }
+
+    const fileData = await uploadRes.json();
+    console.log('Uploaded file:', fileData);
+
+    showToast('✓ Uploaded: ' + fileName, 'success');
+
+    // Reset to retake state
+    uploadBtn.innerHTML = `
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      Upload to Drive`;
+    uploadBtn.style.pointerEvents = '';
+
+  } catch (err) {
+    console.error(err);
+    showToast('Upload failed: ' + err.message, 'error');
+    uploadBtn.innerHTML = `
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      Upload to Drive`;
+    uploadBtn.style.pointerEvents = '';
+  }
+});
+</script>
+</body>
+</html>
