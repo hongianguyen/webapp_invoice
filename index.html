@@ -29,7 +29,6 @@
             border-radius: 12px; 
             background: #202124; 
             margin-bottom: 15px; 
-            transform: scaleX(1); /* Set to -1 if you want a mirror effect */
         }
         button { 
             background: #1a73e8; 
@@ -54,6 +53,7 @@
             padding: 10px;
             border-radius: 4px;
             background: #f1f3f4;
+            word-break: break-all;
         }
         #preview { 
             width: 100%; 
@@ -93,15 +93,15 @@
 
     let tokenClient;
     let accessToken = null;
-    let stream = null;
 
     const video = document.getElementById('video');
     const canvas = document.getElementById('canvas');
     const statusDiv = document.getElementById('status');
     const previewImg = document.getElementById('preview');
 
-    // 1. Function called when Google Script loads
+    // 1. Initialize Google Identity Services
     function gisLoaded() {
+        console.log("GIS Loaded function triggered");
         try {
             tokenClient = google.accounts.oauth2.initTokenClient({
                 client_id: CLIENT_ID,
@@ -112,55 +112,6 @@
                         return;
                     }
                     accessToken = tokenResponse.access_token;
-                    statusDiv.innerText = "Authenticated! Accessing camera...";
+                    statusDiv.innerText = "Authenticated! Starting camera...";
                     document.getElementById('auth_btn').classList.add('hidden');
-                    document.getElementById('camera_section').classList.remove('hidden');
-                    startCamera();
-                },
-            });
-            statusDiv.innerText = "Google ready. Please sign in.";
-        } catch (err) {
-            statusDiv.innerText = "Load error: " + err.message;
-        }
-    }
-
-    // 2. Handle Login
-    document.getElementById('auth_btn').onclick = () => {
-        if (tokenClient) {
-            tokenClient.requestAccessToken();
-        } else {
-            alert("Google library is still loading...");
-        }
-    };
-
-    // 3. Camera Logic
-    async function startCamera() {
-        try {
-            stream = await navigator.mediaDevices.getUserMedia({ 
-                video: { facingMode: "environment" } 
-            });
-            video.srcObject = stream;
-        } catch (err) {
-            statusDiv.innerText = "Camera Access Denied: " + err.message;
-        }
-    }
-
-    // 4. Capture Image
-    document.getElementById('snap_btn').onclick = () => {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        canvas.getContext('2d').drawImage(video, 0, 0);
-        
-        const dataUrl = canvas.toDataURL('image/jpeg');
-        previewImg.src = dataUrl;
-        
-        document.getElementById('camera_section').classList.add('hidden');
-        document.getElementById('upload_section').classList.remove('hidden');
-        statusDiv.innerText = "Photo captured. Ready to upload.";
-    };
-
-    // 5. Retake Logic
-    document.getElementById('retake_btn').onclick = () => {
-        document.getElementById('upload_section').classList.add('hidden');
-        document.getElementById('camera_section').classList.remove('hidden');
-        statusDiv.innerText = "Camera
+                    document.getElementById('camera_section').
