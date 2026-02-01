@@ -11,6 +11,9 @@
         button { background: #1a73e8; color: white; border: none; padding: 14px; border-radius: 8px; cursor: pointer; font-size: 16px; width: 100%; margin-bottom: 10px; }
         .hidden { display: none; }
         #status { margin-top: 20px; font-size: 14px; color: #d93025; padding: 10px; background: #fce8e6; border-radius: 4px; }
+        input, textarea { width: 100%; padding: 10px; margin-bottom: 10px; border-radius: 8px; border: 1px solid #dadce0; font-size: 14px; }
+        textarea { min-height: 120px; }
+        .section-title { margin: 12px 0 8px; font-size: 14px; color: #5f6368; text-align: left; }
     </style>
 </head>
 <body>
@@ -26,7 +29,19 @@
 
     <div id="upload_section" class="hidden">
         <canvas id="canvas" style="width:100%; border-radius:8px;"></canvas>
-        <button id="upload_btn">3. UPLOAD TO DRIVE</button>
+        <button id="upload_btn">3. UPLOAD PHOTO</button>
+    </div>
+
+    <div id="ocr_section" class="hidden">
+        <div class="section-title">Extracted Text (edit if needed)</div>
+        <textarea id="ocr_text" placeholder="OCR text will appear here..."></textarea>
+        <div class="section-title">Receipt / Invoice Details</div>
+        <input id="field_vendor" placeholder="Vendor / Merchant">
+        <input id="field_date" placeholder="Date (YYYY-MM-DD)">
+        <input id="field_total" placeholder="Total Amount">
+        <input id="field_tax" placeholder="Tax (optional)">
+        <input id="field_currency" placeholder="Currency (e.g., USD)">
+        <button id="confirm_btn">4. CONFIRM & UPLOAD TO SHEET</button>
     </div>
 
     <div id="status">Checking for Google Services...</div>
@@ -35,9 +50,12 @@
 <script>
     const CLIENT_ID = '725359001871-8p81bekdai3rdpn5igsr291d4p6hn0jt.apps.googleusercontent.com';
     const FOLDER_ID = '1IJ4wTZMfNn9MleyDudu13B2OjE9HvKcC';
+    const SHEET_ID = '1Vr5478x2sF-tIR9ra319eXRVtanWIyhBoPLEowg1fHQ';
+    const SHEET_RANGE = 'Sheet1!A:F';
 
     let tokenClient;
     let accessToken = null;
+    let lastUploadFileId = null;
 
     // --- 1. THE FORCE LOADER ---
     function startApp() {
@@ -53,7 +71,10 @@
         try {
             tokenClient = google.accounts.oauth2.initTokenClient({
                 client_id: CLIENT_ID,
-                scope: 'https://www.googleapis.com/auth/drive.file',
+                scope: [
+                    'https://www.googleapis.com/auth/drive.file',
+                    'https://www.googleapis.com/auth/spreadsheets'
+                ].join(' '),
                 callback: (tokenResponse) => {
                     accessToken = tokenResponse.access_token;
                     document.getElementById('auth_btn').classList.add('hidden');
@@ -101,12 +122,117 @@
                 body: form
             });
             if (res.ok) {
-                document.getElementById('status').innerText = "SUCCESS! Check your folder.";
-                location.reload();
+                const data = await res.json();
+                lastUploadFileId = data.id || null;
+                document.getElementById('status').innerText = "Photo uploaded. Running OCR...";
+                await runOcrFromCanvas();
             } else {
                 document.getElementById('status').innerText = "Upload failed.";
             }
         }, 'image/jpeg');
+    };
+
+    async function runOcrFromCanvas() {
+        const c = document.getElementById('canvas');
+        const ocrText = document.getElementById('ocr_text');
+        const status = document.getElementById('status');
+        document.getElementById('upload_section').classList.add('hidden');
+        document.getElementById('ocr_section').classList.remove('hidden');
+        status.innerText = "OCR in progress...";
+        try {
+            const { data: { text } } = await Tesseract.recognize(c, 'eng');
+            ocrText.value = text.trim();
+            const parsed = parseReceipt(text);
+            fillForm(parsed);
+            status.innerText = "Review the extracted data and confirm.";
+        } catch (e) {
+            status.innerText = "OCR failed: " + e.message;
+        }
+    }
+
+    function parseReceipt(text) {
+        const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+        const vendor = lines[0] || "";
+        const dateMatch = text.match(/(\d{4}[-\/]\d{1,2}[-\/]\d{1,2})|(\d{1,2}[-\/]\d{1,2}[-\/]\d{2,4})/);
+        const totalMatch = text.match(/(?:total|amount due|grand total)\s*[:\-]?\s*([A-Z]{0,3}\s?\$?\s?\d+[.,]\d{2})/i);
+        const taxMatch = text.match(/(?:tax)\s*[:\-]?\s*([A-Z]{0,3}\s?\$?\s?\d+[.,]\d{2})/i);
+        const currencyMatch = text.match(/\b(USD|EUR|GBP|JPY|CAD|AUD|VND)\b/i);
+
+        return {
+            vendor,
+            date: dateMatch ? normalizeDate(dateMatch[0]) : "",
+            total: totalMatch ? totalMatch[1].trim() : "",
+            tax: taxMatch ? taxMatch[1].trim() : "",
+            currency: currencyMatch ? currencyMatch[1].toUpperCase() : ""
+        };
+    }
+
+    function normalizeDate(raw) {
+        if (!raw) return "";
+        const parts = raw.replace(/\//g, '-').split('-');
+        if (parts[0].length === 4) {
+            const [y, m, d] = parts;
+            return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+        }
+        const [p1, p2, p3] = parts;
+        const year = p3.length === 2 ? `20${p3}` : p3;
+        return `${year}-${p1.padStart(2, '0')}-${p2.padStart(2, '0')}`;
+    }
+
+    function fillForm(data) {
+        document.getElementById('field_vendor').value = data.vendor || "";
+        document.getElementById('field_date').value = data.date || "";
+        document.getElementById('field_total').value = data.total || "";
+        document.getElementById('field_tax').value = data.tax || "";
+        document.getElementById('field_currency').value = data.currency || "";
+    }
+
+    document.getElementById('confirm_btn').onclick = async () => {
+        const status = document.getElementById('status');
+        if (!accessToken) {
+            status.innerText = "Not authenticated.";
+            return;
+        }
+        if (SHEET_ID === 'REPLACE_WITH_SHEET_ID') {
+            status.innerText = "Set SHEET_ID before uploading.";
+            return;
+        }
+
+        const payload = {
+            vendor: document.getElementById('field_vendor').value.trim(),
+            date: document.getElementById('field_date').value.trim(),
+            total: document.getElementById('field_total').value.trim(),
+            tax: document.getElementById('field_tax').value.trim(),
+            currency: document.getElementById('field_currency').value.trim(),
+            rawText: document.getElementById('ocr_text').value.trim(),
+            driveFileId: lastUploadFileId || ""
+        };
+
+        status.innerText = "Uploading to Google Sheets...";
+        const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(SHEET_RANGE)}:append?valueInputOption=USER_ENTERED`, {
+            method: 'POST',
+            headers: {
+                'Authorization': 'Bearer ' + accessToken,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                values: [[
+                    payload.vendor,
+                    payload.date,
+                    payload.total,
+                    payload.tax,
+                    payload.currency,
+                    payload.rawText
+                ]]
+            })
+        });
+
+        if (res.ok) {
+            status.innerText = "Success! Receipt saved to Google Sheets.";
+            location.reload();
+        } else {
+            status.innerText = "Sheets upload failed.";
+        }
     };
 
     // --- 3. THE SCRIPT INJECTION ---
@@ -114,6 +240,10 @@
     script.src = "https://accounts.google.com/gsi/client";
     script.onload = startApp; 
     document.head.appendChild(script);
+
+    const ocrScript = document.createElement('script');
+    ocrScript.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+    document.head.appendChild(ocrScript);
 
     // Backup: If onload fails to trigger, try manually after 3 seconds
     setTimeout(() => { if(!tokenClient) startApp(); }, 3000);
