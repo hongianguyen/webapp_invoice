@@ -59,6 +59,12 @@
     let accessToken = null;
     let lastUploadFileId = null;
     let visionApiKey = "";
+    const visionKeyInput = document.getElementById('vision_key');
+    const savedVisionKey = localStorage.getItem('vision_api_key') || "";
+    if (savedVisionKey) {
+        visionApiKey = savedVisionKey;
+        visionKeyInput.value = savedVisionKey;
+    }
 
     // --- 1. THE FORCE LOADER ---
     function startApp() {
@@ -379,8 +385,9 @@
         }
     };
 
-    document.getElementById('vision_key').addEventListener('input', (e) => {
+    visionKeyInput.addEventListener('input', (e) => {
         visionApiKey = e.target.value.trim();
+        localStorage.setItem('vision_api_key', visionApiKey);
     });
 
     // --- 3. THE SCRIPT INJECTION ---
