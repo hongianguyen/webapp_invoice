@@ -140,7 +140,8 @@
         document.getElementById('ocr_section').classList.remove('hidden');
         status.innerText = "OCR in progress...";
         try {
-            const { data: { text } } = await Tesseract.recognize(c, 'eng');
+            const ocrCanvas = preprocessCanvasForOcr(c);
+            const { data: { text } } = await Tesseract.recognize(ocrCanvas, 'vie+eng');
             ocrText.value = text.trim();
             const parsed = parseReceipt(text);
             fillForm(parsed);
@@ -148,6 +149,35 @@
         } catch (e) {
             status.innerText = "OCR failed: " + e.message;
         }
+    }
+
+    function preprocessCanvasForOcr(sourceCanvas) {
+        const scale = 2;
+        const w = sourceCanvas.width * scale;
+        const h = sourceCanvas.height * scale;
+        const temp = document.createElement('canvas');
+        temp.width = w;
+        temp.height = h;
+        const ctx = temp.getContext('2d');
+
+        // Upscale for better OCR accuracy
+        ctx.drawImage(sourceCanvas, 0, 0, w, h);
+
+        const imageData = ctx.getImageData(0, 0, w, h);
+        const data = imageData.data;
+        for (let i = 0; i < data.length; i += 4) {
+            const r = data[i];
+            const g = data[i + 1];
+            const b = data[i + 2];
+            // Grayscale + simple thresholding
+            const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+            const v = gray > 160 ? 255 : 0;
+            data[i] = v;
+            data[i + 1] = v;
+            data[i + 2] = v;
+        }
+        ctx.putImageData(imageData, 0, 0);
+        return temp;
     }
 
     function parseReceipt(text) {
