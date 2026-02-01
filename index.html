@@ -21,6 +21,7 @@
 <div class="container">
     <h2>Drive Camera App</h2>
     <button id="auth_btn">1. Sign in to Google</button>
+    <input id="gemini_key" type="password" placeholder="Gemini API Key (stored in browser)">
     
     <div id="camera_section" class="hidden">
         <video id="video" autoplay playsinline></video>
@@ -57,6 +58,13 @@
     let accessToken = null;
     let lastUploadFileId = null;
     let lastCapturedBlob = null;
+    let geminiApiKey = "";
+    const geminiKeyInput = document.getElementById('gemini_key');
+    const savedGeminiKey = localStorage.getItem('gemini_api_key') || "";
+    if (savedGeminiKey) {
+        geminiApiKey = savedGeminiKey;
+        geminiKeyInput.value = savedGeminiKey;
+    }
 
     // --- 1. THE FORCE LOADER ---
     function startApp() {
@@ -142,16 +150,20 @@
         document.getElementById('ocr_section').classList.remove('hidden');
         status.innerText = "OCR in progress...";
         try {
+            if (!geminiApiKey) {
+                status.innerText = "Enter Gemini API Key before running OCR.";
+                return;
+            }
             if (!lastCapturedBlob) {
                 status.innerText = "No image captured for OCR.";
                 return;
             }
             const base64 = await blobToBase64(lastCapturedBlob);
-            let text = await runGeminiOcrBase64(base64);
+            let text = await runGeminiOcrBase64(base64, geminiApiKey);
             if (!text.trim()) {
                 const prepared = prepareCanvasForGemini(c);
                 const fallbackBase64 = canvasToBase64(prepared);
-                text = await runGeminiOcrBase64(fallbackBase64);
+                text = await runGeminiOcrBase64(fallbackBase64, geminiApiKey);
             }
             ocrText.value = text.trim();
             const parsed = parseReceipt(text);
@@ -164,12 +176,18 @@
         }
     }
 
-    async function runGeminiOcrBase64(base64) {
-        const res = await fetch('/api/ocr', {
+    async function runGeminiOcrBase64(base64, apiKey) {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                imageBase64: base64
+                contents: [{
+                    role: 'user',
+                    parts: [
+                        { text: 'Extract all text from this receipt/invoice image. Return only the text as plain lines, no extra commentary.' },
+                        { inline_data: { mime_type: 'image/jpeg', data: base64 } }
+                    ]
+                }]
             })
         });
 
@@ -181,11 +199,18 @@
             } catch (_) {
                 // ignore JSON parse errors
             }
-            throw new Error("OCR request failed." + detail);
+            throw new Error("Gemini API request failed." + detail);
         }
         const data = await res.json();
-        return data?.text || "";
+        const text = data?.candidates?.[0]?.content?.parts
+            ?.map(part => part.text || "")
+            .join("\n") || "";
+        return text;
     }
+    geminiKeyInput.addEventListener('input', (e) => {
+        geminiApiKey = e.target.value.trim();
+        localStorage.setItem('gemini_api_key', geminiApiKey);
+    });
 
     function canvasToBase64(canvas) {
         const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
