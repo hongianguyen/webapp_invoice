@@ -52,6 +52,7 @@
     const FOLDER_ID = '1IJ4wTZMfNn9MleyDudu13B2OjE9HvKcC';
     const SHEET_ID = '1Vr5478x2sF-tIR9ra319eXRVtanWIyhBoPLEowg1fHQ';
     const SHEET_RANGE = 'Sheet1!A:F';
+    const VISION_API_KEY = 'REPLACE_WITH_VISION_API_KEY';
 
     let tokenClient;
     let accessToken = null;
@@ -140,8 +141,12 @@
         document.getElementById('ocr_section').classList.remove('hidden');
         status.innerText = "OCR in progress...";
         try {
-            const ocrCanvas = preprocessCanvasForOcr(c);
-            const { data: { text } } = await Tesseract.recognize(ocrCanvas, 'vie+eng');
+            if (VISION_API_KEY === 'REPLACE_WITH_VISION_API_KEY') {
+                status.innerText = "Set VISION_API_KEY before running OCR.";
+                return;
+            }
+            const prepared = prepareCanvasForVision(c);
+            const text = await runVisionOcr(prepared);
             ocrText.value = text.trim();
             const parsed = parseReceipt(text);
             fillForm(parsed);
@@ -149,6 +154,57 @@
         } catch (e) {
             status.innerText = "OCR failed: " + e.message;
         }
+    }
+
+    async function runVisionOcr(canvas) {
+        const base64 = canvasToBase64(canvas);
+        const res = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${VISION_API_KEY}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                requests: [{
+                    image: { content: base64 },
+                    features: [{ type: 'DOCUMENT_TEXT_DETECTION' }]
+                }]
+            })
+        });
+
+        if (!res.ok) {
+            let detail = "";
+            try {
+                const errorPayload = await res.json();
+                detail = errorPayload?.error?.message ? ` ${errorPayload.error.message}` : "";
+            } catch (_) {
+                // ignore JSON parse errors
+            }
+            throw new Error("Vision API request failed." + detail);
+        }
+        const data = await res.json();
+        if (data?.responses?.[0]?.error?.message) {
+            throw new Error(`Vision API error: ${data.responses[0].error.message}`);
+        }
+        const annotation = data.responses?.[0]?.fullTextAnnotation?.text
+            || data.responses?.[0]?.textAnnotations?.[0]?.description
+            || "";
+        return annotation;
+    }
+
+    function canvasToBase64(canvas) {
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+        return dataUrl.split(',')[1] || "";
+    }
+
+    function prepareCanvasForVision(sourceCanvas) {
+        let working = sourceCanvas;
+        // Auto-rotate if landscape (most receipts are portrait)
+        if (working.width > working.height) {
+            working = rotateCanvas90(working);
+        }
+        // Improve contrast and binarize for text detection
+        working = preprocessCanvasForOcr(working);
+        // Crop to content to reduce background noise
+        working = cropCanvasToContent(working);
+        return working;
     }
 
     function preprocessCanvasForOcr(sourceCanvas) {
@@ -177,6 +233,61 @@
             data[i + 2] = v;
         }
         ctx.putImageData(imageData, 0, 0);
+        return temp;
+    }
+
+    function rotateCanvas90(sourceCanvas) {
+        const temp = document.createElement('canvas');
+        temp.width = sourceCanvas.height;
+        temp.height = sourceCanvas.width;
+        const ctx = temp.getContext('2d');
+        ctx.translate(temp.width / 2, temp.height / 2);
+        ctx.rotate(Math.PI / 2);
+        ctx.drawImage(sourceCanvas, -sourceCanvas.width / 2, -sourceCanvas.height / 2);
+        return temp;
+    }
+
+    function cropCanvasToContent(sourceCanvas) {
+        const ctx = sourceCanvas.getContext('2d');
+        const { width, height } = sourceCanvas;
+        const imageData = ctx.getImageData(0, 0, width, height);
+        const data = imageData.data;
+        const threshold = 200;
+        let minX = width, minY = height, maxX = 0, maxY = 0;
+        let found = false;
+
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const idx = (y * width + x) * 4;
+                const r = data[idx];
+                const g = data[idx + 1];
+                const b = data[idx + 2];
+                const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+                if (gray < threshold) {
+                    found = true;
+                    if (x < minX) minX = x;
+                    if (y < minY) minY = y;
+                    if (x > maxX) maxX = x;
+                    if (y > maxY) maxY = y;
+                }
+            }
+        }
+
+        if (!found) return sourceCanvas;
+
+        const padding = 10;
+        minX = Math.max(minX - padding, 0);
+        minY = Math.max(minY - padding, 0);
+        maxX = Math.min(maxX + padding, width - 1);
+        maxY = Math.min(maxY + padding, height - 1);
+        const cropW = maxX - minX + 1;
+        const cropH = maxY - minY + 1;
+
+        const temp = document.createElement('canvas');
+        temp.width = cropW;
+        temp.height = cropH;
+        const tctx = temp.getContext('2d');
+        tctx.drawImage(sourceCanvas, minX, minY, cropW, cropH, 0, 0, cropW, cropH);
         return temp;
     }
 
@@ -270,10 +381,6 @@
     script.src = "https://accounts.google.com/gsi/client";
     script.onload = startApp; 
     document.head.appendChild(script);
-
-    const ocrScript = document.createElement('script');
-    ocrScript.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
-    document.head.appendChild(ocrScript);
 
     // Backup: If onload fails to trigger, try manually after 3 seconds
     setTimeout(() => { if(!tokenClient) startApp(); }, 3000);
