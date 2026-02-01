@@ -173,7 +173,8 @@
             body: JSON.stringify({
                 requests: [{
                     image: { content: base64 },
-                    features: [{ type: 'DOCUMENT_TEXT_DETECTION' }]
+                    features: [{ type: 'DOCUMENT_TEXT_DETECTION' }],
+                    imageContext: { languageHints: ['vi'] }
                 }]
             })
         });
@@ -209,11 +210,19 @@
         if (working.width > working.height) {
             working = rotateCanvas90(working);
         }
-        // Improve contrast and binarize for text detection
-        working = preprocessCanvasForOcr(working);
-        // Crop to content to reduce background noise
-        working = cropCanvasToContent(working);
-        return working;
+        // Mild upscale only; Vision works better with original color.
+        return upscaleCanvas(working, 2);
+    }
+
+    function upscaleCanvas(sourceCanvas, scale) {
+        const w = Math.round(sourceCanvas.width * scale);
+        const h = Math.round(sourceCanvas.height * scale);
+        const temp = document.createElement('canvas');
+        temp.width = w;
+        temp.height = h;
+        const ctx = temp.getContext('2d');
+        ctx.drawImage(sourceCanvas, 0, 0, w, h);
+        return temp;
     }
 
     function preprocessCanvasForOcr(sourceCanvas) {
