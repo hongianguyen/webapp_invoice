@@ -5,69 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Drive Snap & Upload</title>
     <style>
-        body { 
-            font-family: 'Segoe UI', system-ui, sans-serif; 
-            display: flex; 
-            flex-direction: column; 
-            align-items: center; 
-            background: #f8f9fa; 
-            margin: 0; 
-            padding: 20px; 
-        }
-        .container { 
-            background: white; 
-            padding: 24px; 
-            border-radius: 16px; 
-            box-shadow: 0 10px 25px rgba(0,0,0,0.1); 
-            width: 100%; 
-            max-width: 450px; 
-            text-align: center; 
-        }
-        h2 { color: #1f1f1f; margin-bottom: 20px; }
-        video { 
-            width: 100%; 
-            border-radius: 12px; 
-            background: #202124; 
-            margin-bottom: 15px; 
-        }
-        button { 
-            background: #1a73e8; 
-            color: white; 
-            border: none; 
-            padding: 14px 20px; 
-            border-radius: 8px; 
-            cursor: pointer; 
-            font-size: 16px; 
-            font-weight: 600; 
-            width: 100%; 
-            transition: background 0.2s;
-            margin-bottom: 10px;
-        }
-        button:hover { background: #1557b0; }
-        button:disabled { background: #dadce0; cursor: not-allowed; }
+        body { font-family: system-ui, sans-serif; display: flex; flex-direction: column; align-items: center; background: #f8f9fa; padding: 20px; }
+        .container { background: white; padding: 24px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); width: 100%; max-width: 450px; text-align: center; }
+        video { width: 100%; border-radius: 12px; background: #000; margin-bottom: 15px; }
+        button { background: #1a73e8; color: white; border: none; padding: 14px; border-radius: 8px; cursor: pointer; font-size: 16px; width: 100%; margin-bottom: 10px; }
         .hidden { display: none; }
-        #status { 
-            margin-top: 20px; 
-            font-size: 14px; 
-            color: #5f6368; 
-            padding: 10px;
-            border-radius: 4px;
-            background: #f1f3f4;
-            word-break: break-all;
-        }
-        #preview { 
-            width: 100%; 
-            border-radius: 8px; 
-            margin-bottom: 15px; 
-            border: 2px solid #1a73e8;
-        }
+        #status { margin-top: 20px; font-size: 14px; color: #d93025; padding: 10px; background: #fce8e6; border-radius: 4px; }
     </style>
 </head>
 <body>
 
 <div class="container">
     <h2>Drive Camera App</h2>
-    
     <button id="auth_btn">1. Sign in to Google</button>
     
     <div id="camera_section" class="hidden">
@@ -76,145 +25,99 @@
     </div>
 
     <div id="upload_section" class="hidden">
-        <img id="preview" alt="Preview">
-        <button id="upload_btn">3. UPLOAD TO FOLDER</button>
-        <button id="retake_btn" style="background: #5f6368;">Retake Photo</button>
+        <canvas id="canvas" style="width:100%; border-radius:8px;"></canvas>
+        <button id="upload_btn">3. UPLOAD TO DRIVE</button>
     </div>
 
-    <canvas id="canvas" class="hidden"></canvas>
-    <div id="status">Initializing Google Services...</div>
+    <div id="status">Checking for Google Services...</div>
 </div>
 
 <script>
-    // Configuration
-  const CLIENT_ID = '725359001871-8p81bekdai3rdpn5igsr291d4p6hn0jt.apps.googleusercontent.com';
+    const CLIENT_ID = '725359001871-8p81bekdai3rdpn5igsr291d4p6hn0jt.apps.googleusercontent.com';
     const FOLDER_ID = '1IJ4wTZMfNn9MleyDudu13B2OjE9HvKcC';
-    const SCOPES = 'https://www.googleapis.com/auth/drive.file';
 
     let tokenClient;
     let accessToken = null;
 
-    const video = document.getElementById('video');
-    const canvas = document.getElementById('canvas');
-    const statusDiv = document.getElementById('status');
-    const previewImg = document.getElementById('preview');
+    // --- 1. THE FORCE LOADER ---
+    function startApp() {
+        console.log("Checking for Google Library...");
+        if (typeof google !== 'undefined' && google.accounts) {
+            initGis();
+        } else {
+            document.getElementById('status').innerText = "STUCK: Google Script is being blocked by your browser/ad-blocker.";
+        }
+    }
 
-    // 1. Core Initialization
-    function gisLoaded() {
-        console.log("Attempting to initialize Google Client...");
+    function initGis() {
         try {
-            if (typeof google === 'undefined') {
-                statusDiv.innerHTML = "Google Script not found. <button onclick='location.reload()'>Reload Page</button>";
-                return;
-            }
-            
             tokenClient = google.accounts.oauth2.initTokenClient({
                 client_id: CLIENT_ID,
-                scope: SCOPES,
+                scope: 'https://www.googleapis.com/auth/drive.file',
                 callback: (tokenResponse) => {
-                    if (tokenResponse.error) {
-                        statusDiv.innerText = "Auth Error: " + tokenResponse.error;
-                        return;
-                    }
                     accessToken = tokenResponse.access_token;
-                    statusDiv.innerText = "Authenticated! Starting camera...";
                     document.getElementById('auth_btn').classList.add('hidden');
                     document.getElementById('camera_section').classList.remove('hidden');
+                    document.getElementById('status').innerText = "Logged in!";
                     startCamera();
                 },
             });
-            statusDiv.innerText = "Google Ready. Please sign in.";
-            console.log("Google Client initialized successfully.");
-        } catch (err) {
-            statusDiv.innerText = "Init Error: " + err.message;
-            console.error("GIS Init Error:", err);
+            document.getElementById('status').innerText = "Ready. Click Sign In.";
+            document.getElementById('status').style.background = "#e6f4ea";
+            document.getElementById('status').style.color = "#1e8e3e";
+        } catch (e) {
+            document.getElementById('status').innerText = "Error initializing: " + e.message;
         }
     }
 
-    // 2. Sign In Action
-    document.getElementById('auth_btn').onclick = () => {
-        if (tokenClient) {
-            tokenClient.requestAccessToken();
-        } else {
-            // If it's still stuck, try one last manual init
-            console.log("TokenClient missing, trying manual init...");
-            gisLoaded();
-            if(tokenClient) tokenClient.requestAccessToken();
-            else alert("Google Services are blocked by your browser or an extension.");
-        }
-    };
+    // --- 2. THE REST OF THE LOGIC ---
+    document.getElementById('auth_btn').onclick = () => tokenClient.requestAccessToken();
 
-    // 3. Camera Start
     async function startCamera() {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ 
-                video: { facingMode: "environment" } 
-            });
-            video.srcObject = stream;
-        } catch (err) {
-            statusDiv.innerText = "Camera Error: " + err.message + ". Are you on HTTPS?";
-        }
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+        document.getElementById('video').srcObject = stream;
     }
 
-    // 4. Snap Photo
     document.getElementById('snap_btn').onclick = () => {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        canvas.getContext('2d').drawImage(video, 0, 0);
-        previewImg.src = canvas.toDataURL('image/jpeg');
+        const v = document.getElementById('video');
+        const c = document.getElementById('canvas');
+        c.width = v.videoWidth; c.height = v.videoHeight;
+        c.getContext('2d').drawImage(v, 0, 0);
         document.getElementById('camera_section').classList.add('hidden');
         document.getElementById('upload_section').classList.remove('hidden');
     };
 
-    // 5. Retake
-    document.getElementById('retake_btn').onclick = () => {
-        document.getElementById('upload_section').classList.add('hidden');
-        document.getElementById('camera_section').classList.remove('hidden');
-    };
-
-    // 6. Upload Logic
     document.getElementById('upload_btn').onclick = async () => {
-        statusDiv.innerText = "Uploading...";
-        document.getElementById('upload_btn').disabled = true;
-
-        canvas.toBlob(async (blob) => {
-            const metadata = {
-                name: `Photo_${Date.now()}.jpg`,
-                mimeType: 'image/jpeg',
-                parents: [FOLDER_ID]
-            };
-
+        document.getElementById('status').innerText = "Uploading...";
+        document.getElementById('canvas').toBlob(async (blob) => {
+            const metadata = { name: `Snap_${Date.now()}.jpg`, parents: [FOLDER_ID] };
             const form = new FormData();
             form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
             form.append('file', blob);
 
-            try {
-                const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-                    method: 'POST',
-                    headers: { 'Authorization': 'Bearer ' + accessToken },
-                    body: form
-                });
-
-                if (response.ok) {
-                    statusDiv.innerHTML = "<b style='color:green'>Success! Uploaded to Drive.</b>";
-                    document.getElementById('upload_section').classList.add('hidden');
-                    document.getElementById('camera_section').classList.remove('hidden');
-                } else {
-                    const error = await response.json();
-                    throw new Error(error.error.message);
-                }
-            } catch (err) {
-                statusDiv.innerText = "Upload failed: " + err.message;
-            } finally {
-                document.getElementById('upload_btn').disabled = false;
+            const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + accessToken },
+                body: form
+            });
+            if (res.ok) {
+                document.getElementById('status').innerText = "SUCCESS! Check your folder.";
+                location.reload();
+            } else {
+                document.getElementById('status').innerText = "Upload failed.";
             }
-        }, 'image/jpeg', 0.8);
+        }, 'image/jpeg');
     };
 
-    // FINAL ATTEMPT AT LOADING
-    window.onload = () => {
-        const script = document.createElement('script');
-        script.src = "https://accounts.google.com/gsi/client";
-        script.onload = gisLoaded;
-        document.head.appendChild(script);
-    };
+    // --- 3. THE SCRIPT INJECTION ---
+    const script = document.createElement('script');
+    script.src = "https://accounts.google.com/gsi/client";
+    script.onload = startApp; 
+    document.head.appendChild(script);
+
+    // Backup: If onload fails to trigger, try manually after 3 seconds
+    setTimeout(() => { if(!tokenClient) startApp(); }, 3000);
+</script>
+
+</body>
+</html>
