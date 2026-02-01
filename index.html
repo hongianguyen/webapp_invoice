@@ -1,39 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Drive Snap & Upload</title>
+    <style>
+        body { 
+            font-family: 'Segoe UI', system-ui, sans-serif; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            background: #f8f9fa; 
+            margin: 0; 
+            padding: 20px; 
+        }
+        .container { 
+            background: white; 
+            padding: 24px; 
+            border-radius: 16px; 
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1); 
+            width: 100%; 
+            max-width: 450px; 
+            text-align: center; 
+        }
+        h2 { color: #1f1f1f; margin-bottom: 20px; }
+        video { 
+            width: 100%; 
+            border-radius: 12px; 
+            background: #202124; 
+            margin-bottom: 15px; 
+            transform: scaleX(1); /* Set to -1 if you want a mirror effect */
+        }
+        button { 
+            background: #1a73e8; 
+            color: white; 
+            border: none; 
+            padding: 14px 20px; 
+            border-radius: 8px; 
+            cursor: pointer; 
+            font-size: 16px; 
+            font-weight: 600; 
+            width: 100%; 
+            transition: background 0.2s;
+            margin-bottom: 10px;
+        }
+        button:hover { background: #1557b0; }
+        button:disabled { background: #dadce0; cursor: not-allowed; }
+        .hidden { display: none; }
+        #status { 
+            margin-top: 20px; 
+            font-size: 14px; 
+            color: #5f6368; 
+            padding: 10px;
+            border-radius: 4px;
+            background: #f1f3f4;
+        }
+        #preview { 
+            width: 100%; 
+            border-radius: 8px; 
+            margin-bottom: 15px; 
+            border: 2px solid #1a73e8;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Drive Camera App</h2>
+    
+    <button id="auth_btn">1. Sign in to Google</button>
+    
+    <div id="camera_section" class="hidden">
+        <video id="video" autoplay playsinline></video>
+        <button id="snap_btn">2. SNAP PHOTO</button>
+    </div>
+
+    <div id="upload_section" class="hidden">
+        <img id="preview" alt="Preview">
+        <button id="upload_btn">3. UPLOAD TO FOLDER</button>
+        <button id="retake_btn" style="background: #5f6368;">Retake Photo</button>
+    </div>
+
+    <canvas id="canvas" class="hidden"></canvas>
+    <div id="status">Initializing Google Services...</div>
+</div>
+
 <script>
-    // 1. DEFINE YOUR VARIABLES AND FUNCTIONS FIRST
+    // Configuration
     const CLIENT_ID = '725359001871-8p81bekdai3rdpn5igsr291d4p6hn0jt.apps.googleusercontent.com';
     const FOLDER_ID = '1IJ4wTZMfNn9MleyDudu13B2OjE9HvKcC';
     const SCOPES = 'https://www.googleapis.com/auth/drive.file';
 
     let tokenClient;
     let accessToken = null;
+    let stream = null;
 
-    // This function MUST be defined before the Google script loads
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const statusDiv = document.getElementById('status');
+    const previewImg = document.getElementById('preview');
+
+    // 1. Function called when Google Script loads
     function gisLoaded() {
-        console.log("Library loaded successfully!");
-        tokenClient = google.accounts.oauth2.initTokenClient({
-            client_id: CLIENT_ID,
-            scope: SCOPES,
-            callback: (tokenResponse) => {
-                accessToken = tokenResponse.access_token;
-                document.getElementById('auth_btn').classList.add('hidden');
-                document.getElementById('camera_section').classList.remove('hidden');
-                startCamera();
-            },
-        });
+        try {
+            tokenClient = google.accounts.oauth2.initTokenClient({
+                client_id: CLIENT_ID,
+                scope: SCOPES,
+                callback: (tokenResponse) => {
+                    if (tokenResponse.error) {
+                        statusDiv.innerText = "Auth Error: " + tokenResponse.error;
+                        return;
+                    }
+                    accessToken = tokenResponse.access_token;
+                    statusDiv.innerText = "Authenticated! Accessing camera...";
+                    document.getElementById('auth_btn').classList.add('hidden');
+                    document.getElementById('camera_section').classList.remove('hidden');
+                    startCamera();
+                },
+            });
+            statusDiv.innerText = "Google ready. Please sign in.";
+        } catch (err) {
+            statusDiv.innerText = "Load error: " + err.message;
+        }
     }
 
+    // 2. Handle Login
     document.getElementById('auth_btn').onclick = () => {
         if (tokenClient) {
             tokenClient.requestAccessToken();
         } else {
-            alert("Google library not loaded yet. Please wait a moment.");
+            alert("Google library is still loading...");
         }
     };
 
-    // ... (Keep your startCamera, SNAP, and UPLOAD logic here) ...
-</script>
+    // 3. Camera Logic
+    async function startCamera() {
+        try {
+            stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: "environment" } 
+            });
+            video.srcObject = stream;
+        } catch (err) {
+            statusDiv.innerText = "Camera Access Denied: " + err.message;
+        }
+    }
 
-<script src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
+    // 4. Capture Image
+    document.getElementById('snap_btn').onclick = () => {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        canvas.getContext('2d').drawImage(video, 0, 0);
+        
+        const dataUrl = canvas.toDataURL('image/jpeg');
+        previewImg.src = dataUrl;
+        
+        document.getElementById('camera_section').classList.add('hidden');
+        document.getElementById('upload_section').classList.remove('hidden');
+        statusDiv.innerText = "Photo captured. Ready to upload.";
+    };
 
-</body>
-</html>
+    // 5. Retake Logic
+    document.getElementById('retake_btn').onclick = () => {
+        document.getElementById('upload_section').classList.add('hidden');
+        document.getElementById('camera_section').classList.remove('hidden');
+        statusDiv.innerText = "Camera
