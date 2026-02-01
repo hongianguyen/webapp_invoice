@@ -21,6 +21,7 @@
 <div class="container">
     <h2>Drive Camera App</h2>
     <button id="auth_btn">1. Sign in to Google</button>
+    <input id="vision_key" type="password" placeholder="Vision API Key (not saved)">
     
     <div id="camera_section" class="hidden">
         <video id="video" autoplay playsinline></video>
@@ -52,11 +53,12 @@
     const FOLDER_ID = '1IJ4wTZMfNn9MleyDudu13B2OjE9HvKcC';
     const SHEET_ID = '1Vr5478x2sF-tIR9ra319eXRVtanWIyhBoPLEowg1fHQ';
     const SHEET_RANGE = 'Sheet1!A:F';
-    const VISION_API_KEY = '725359001871-8p81bekdai3rdpn5igsr291d4p6hn0jt.apps.googleusercontent.com';
+    const VISION_API_KEY = '';
 
     let tokenClient;
     let accessToken = null;
     let lastUploadFileId = null;
+    let visionApiKey = "";
 
     // --- 1. THE FORCE LOADER ---
     function startApp() {
@@ -141,12 +143,13 @@
         document.getElementById('ocr_section').classList.remove('hidden');
         status.innerText = "OCR in progress...";
         try {
-            if (VISION_API_KEY === 'REPLACE_WITH_VISION_API_KEY') {
-                status.innerText = "Set VISION_API_KEY before running OCR.";
+            const activeKey = visionApiKey || VISION_API_KEY;
+            if (!activeKey) {
+                status.innerText = "Enter Vision API Key before running OCR.";
                 return;
             }
             const prepared = prepareCanvasForVision(c);
-            const text = await runVisionOcr(prepared);
+            const text = await runVisionOcr(prepared, activeKey);
             ocrText.value = text.trim();
             const parsed = parseReceipt(text);
             fillForm(parsed);
@@ -156,9 +159,9 @@
         }
     }
 
-    async function runVisionOcr(canvas) {
+    async function runVisionOcr(canvas, apiKey) {
         const base64 = canvasToBase64(canvas);
-        const res = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${VISION_API_KEY}`, {
+        const res = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -375,6 +378,10 @@
             status.innerText = "Sheets upload failed.";
         }
     };
+
+    document.getElementById('vision_key').addEventListener('input', (e) => {
+        visionApiKey = e.target.value.trim();
+    });
 
     // --- 3. THE SCRIPT INJECTION ---
     const script = document.createElement('script');
