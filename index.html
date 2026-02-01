@@ -346,12 +346,13 @@
       <summary>⚙️ Developer Setup Instructions</summary>
       <ol>
         <li>Go to <a href="https://console.cloud.google.com" target="_blank" style="color:var(--accent);">Google Cloud Console</a> and create a project.</li>
-        <li>Enable <strong>Google Drive API</strong> and <strong>Google Identity Services</strong> (OAuth).</li>
-        <li>Create an <strong>OAuth 2.0 Client ID</strong> (Web application). Add your hosted URL to <em>Authorised origins</em> and <em>Authorised redirect URIs</em>.</li>
-        <li>Copy your <code>Client ID</code> into the <code>CLIENT_ID</code> variable in the script below.</li>
+        <li>Enable <strong>Google Drive API</strong>.</li>
+        <li>Go to <strong>APIs &amp; Services → Credentials → Create → OAuth 2.0 Client ID</strong> (Web application).</li>
+        <li>Set <strong>Authorized origins</strong> to:<br/><code>https://hongianguyen.github.io</code></li>
+        <li>Set <strong>Authorized redirect URIs</strong> to:<br/><code>https://hongianguyen.github.io/webapp_invoice/oauth.html</code></li>
+        <li>Copy the <strong>Client ID</strong> into the <code>CLIENT_ID</code> variable in <code>index.html</code>.</li>
         <li>Create a folder in Google Drive. Copy its <strong>Folder ID</strong> (from the URL) into <code>DRIVE_FOLDER_ID</code>.</li>
-        <li>Host this file over <strong>HTTPS</strong> (e.g. GitHub Pages, Netlify, Vercel).</li>
-        <li>Photos uploaded will appear in the specified Google Drive folder under the authenticated user's account.</li>
+        <li>Upload both <code>index.html</code> and <code>oauth.html</code> to your repo root.</li>
       </ol>
       <p style="margin-top:12px;color:var(--red);font-size:.72rem;">
         ⚠️ Google OAuth requires the page to be served over HTTPS from an authorized origin. <code>localhost</code> works only if added to the authorized origins list.
@@ -371,7 +372,7 @@
 //  ▶  CONFIG  — replace with your own values
 // ════════════════════════════════════════════════════
 const CLIENT_ID       = '725359001871-8p81bekdai3rdpn5igsr291d4p6hn0jt.apps.googleusercontent.com';
-const DRIVE_FOLDER_ID = '1IJ4wTZMfNn9MleyDudu13B2OjE9HvKcC';   // folder ID from Drive URL
+const DRIVE_FOLDER_ID = '1IJ4wTZMfNn9MleyDudu13B2OjE9HvKcC';
 const FOLDER_NAME     = 'Photos Upload';                  // display name (cosmetic)
 // ════════════════════════════════════════════════════
 
@@ -434,22 +435,11 @@ function flash() {
 //  We use the simple implicit-flow style via a popup.
 // ═══════════════════════════════════════════
 
+// ─── Sign-In: opens oauth.html in a popup as the redirect target ───
 signInBtn.addEventListener('click', () => {
-  const params = new URLSearchParams({
-    client_id:     CLIENT_ID,
-    redirect_uri:  'https://accounts.google.com/gsi/callback',
-    response_type: 'token',
-    scope:         SCOPES + ' openid email profile',
-    state:         'snap_and_save',
-    prompt:        'consent',
-    access_type:   'online'
-  });
+  // The redirect_uri MUST point to oauth.html (registered in Google Cloud)
+  const redirectUri = window.location.origin + window.location.pathname.replace(/[^/]*$/, '') + 'oauth.html';
 
-  // We use a popup and listen for postMessage — simpler than redirect.
-  // Google's GIS library is the cleanest approach; here we use a manual
-  // OAuth popup that posts back the token.
-
-  const redirectUri = window.location.origin + window.location.pathname;
   const authUrl = 'https://accounts.google.com/o/oauth/v2/auth?' +
     new URLSearchParams({
       client_id:     CLIENT_ID,
@@ -460,37 +450,37 @@ signInBtn.addEventListener('click', () => {
       prompt:        'consent'
     }).toString();
 
-  // ── If this page was redirected back with a hash token ──
-  // (handled on page load below)
-  // For popup approach — open in popup window:
-  const popup = window.open(authUrl, 'googleAuth', 'width=500,height=600,resizable=yes');
+  const popup = window.open(authUrl, 'googleAuth', 'width=500,height=600,resizable=yes,scrollbars=yes');
   if (!popup) {
-    // Popup blocked — fall back to redirect
-    window.location.href = authUrl;
+    // Popup was blocked — fall back to full-page redirect
+    // In this case oauth.html will redirect back to index.html with the token in the URL hash
+    window.location.href = authUrl.replace('redirect_uri=' + encodeURIComponent(redirectUri),
+      'redirect_uri=' + encodeURIComponent(window.location.origin + window.location.pathname));
   }
 });
 
-// ─── On page load: check URL hash for token (redirect flow) ───
-(function checkToken() {
+// ─── Listen for the token posted by oauth.html ───
+window.addEventListener('message', (e) => {
+  // Only accept messages from our own origin
+  if (e.origin !== window.location.origin) return;
+  if (e.data && e.data.access_token) {
+    accessToken = e.data.access_token;
+    fetchUserInfo();
+  }
+});
+
+// ─── Fallback: if we land back on index.html with a hash (popup was blocked) ───
+(function checkHash() {
   const hash = window.location.hash;
   if (hash) {
-    const params = new URLSearchParams(hash.replace('#',''));
+    const params = new URLSearchParams(hash.replace('#', ''));
     const token = params.get('access_token');
     if (token) {
       accessToken = token;
-      // Remove hash from URL
       history.replaceState(null, '', window.location.pathname);
       fetchUserInfo();
-      return;
     }
   }
-  // Also listen for popup postMessage (if popup closes and posts)
-  window.addEventListener('message', (e) => {
-    if (e.data && e.data.access_token) {
-      accessToken = e.data.access_token;
-      fetchUserInfo();
-    }
-  });
 })();
 
 // ─── Fetch user info from Google ───
